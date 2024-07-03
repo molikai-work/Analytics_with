@@ -1,74 +1,82 @@
-[简体中文](./README.zh-CN.md) · **English**
+# 基于 Cloudflare Workers 的网站访问数统计程序
+通过 Cloudflare Workers 可实现免费部署与存储，免费计划每日 Workers 请求 10 万次，D1 免费 5GB 存储和 5 百万次读取，足够个人使用.
 
-# Web Visitor Analytics Service Based on Cloudflare + Huno + D1
+本存储库分叉于 [https://github.com/yestool/analytics_with_cloudflare](https://github.com/yestool/analytics_with_cloudflare)，已经修改了部分代码。
 
-[Demo Site](https://webviso.yestool.org/)
+[原作者演示站](https://webviso.yestool.org/)
 
-## Deployment Steps
+## 部署步骤
 
-### Install Dependencies
+### 克隆存储库
 
-```bash
+1. 确保安装 Git 命令，然后执行：
+```
+git clone https://github.com/molikai-work/Analytics_with.git
+```
+
+2. 在克隆下来的项目文件夹内打开终端，准备执行命令。
+
+### 安装依赖
+3. 安装项目必须的依赖，执行一下命令。
+
+```
 npm install -g wrangler
 npm install hono
 ```
 
-### Login
+### 登录 Cloudflare
 
-Redirect to the Cloudflare web authorization page.
-
-```bash
+1. 确保浏览器已登录 Cloudflare，然后执行以下命令，跳转 Cloudflare 网页授权。
+```
 npx wrangler login
 ```
 
-### Create D1 Database: [web_analytics]
+### 创建 D1 数据库："web_analytics_2"
 
-> The database name should be `web_analytics`, consistent with the name in `package.json`.
+> 数据库名称为`web_analytics_2`，与`package.json`内保持一致
 
-```bash
-npx wrangler d1 create web_analytics
+```
+npx wrangler d1 create web_analytics_2
 ```
 
-After successful creation, it will display:
-
+成功后显示：
 ```
 ✅ Successfully created DB web_analytics
 
 [[d1_databases]]
 binding = "DB" # available in your Worker on env.DB
-database_name = "web_analytics"
+database_name = "web_analytics_2"
 database_id = "<unique-ID-for-your-database>"
 ```
 
-### Configure Worker and Bind D1 Database
+### 配置 Workers 和 D1 数据库绑定
 
-Write the `unique-ID-for-your-database` returned from the previous step into `wrangler.toml`.
+将上个步骤返回的 `unique-ID-for-your-database` 写进 `wrangler.toml` 中
 
-```toml
-name = "analytics_with_cloudflare"
+```
+name = "analytics-with-2"
 main = "src/index.ts"
-compatibility_date = "2024-06-14"
+compatibility_date = "2024-07-03"
 
 [[d1_databases]]
-binding = "DB" # available in your Worker on env.DB
-database_name = "web_analytics"
-database_id = "<unique-ID-for-your-database>"
+binding = "DB"
+database_name = "web_analytics_2"
+database_id = "<unique-ID-for-your-database>" # 这里！
 ```
 
-### Initialize the D1 Database Schema
+### 初始化 D1 数据库的表结构
 
-```bash
+```
 npm run initSql
 ```
 
-### Deploy
+### 发布 Workers
 
-```bash
+```
 npm run deploy
 ```
 
-After successful deployment, it will display:
-
+成功后显示：
 ```
 > analytics_with_cloudflare@0.0.0 deploy
 > wrangler deploy
@@ -86,48 +94,32 @@ Published analytics_with_cloudflare (4.03 sec)
 Current Deployment ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-## How to Use
+## 如何使用
+### 引入脚本
+部署完后端之后，使用您的服务地址将请求发送到自己的服务
 
-> - `data-base-url` default value: `https://webviso.yestool.org`
-> - `data-page-pv-id` default value: `page_pv`
-> - `data-page-uv-id` default value: `page_uv`
+将本项目中的 [analytics.js](/front/dist/analytics.js) 文件下载后修改内容，
+修改 `apiUrl` 的值为您部署的程序地址，例如：“https://analytics.example.com”
+注意不要加末尾的 `/`。
 
-### 1. Include the Script
+`page_pv_id` 和 `page_uv_id` 可根据需求修改为能希望展示数据的标签 id 值。
 
-Add the following `<script>...</script>` segment before the closing `</body>` tag in your HTML.
+```
+(function() {
+    const config = {
+        apiUrl: "<your-domain-name>", // API 地址
+        page_pv_id: "page_pv", // PV 元素 ID
+        page_uv_id: "page_uv", // UV 元素 ID
 
-- Using the online JS file:
-> With the defer attribute, the browser will execute these scripts after all content is loaded.
-
-```html
-<script defer src="//webviso.yestool.org/js/index.min.js"></script>
+...
 ```
 
-- Using a local JS file:
+### 展示数据
+- 加入默认 id 为 `page_pv` 或 `page_uv`的标签，即可显示 `访问人次(pv)` 或 `访问人数(uv)`
 
-```html
-<script src="/front/dist/index.min.js"></script>
+例如：
+
 ```
-
-- If you have deployed your backend, use your service address to send requests to your own service.
-> Change `your-url` to your worker address, like `https://analytics_with_cloudflare.workers.dev`, and ensure there is no trailing `/`.
-
-```html
-<script defer src="//webviso.yestool.org/js/index.min.js" data-base-url="your-url"></script>
-```
-
-### 2. Display Data
-
-- Add tags with the ID `page_pv` or `page_uv` to show `Page Views (pv)` or `Unique Visitors (uv)` respectively.
-
-```html
-Page Views on this page:<span id="page_pv"></span>
-
-Unique Visitors on this page:<span id="page_uv"></span>
-```
-
-- You can edit the script parameters to adjust the tag IDs.
-
-```html
-<script defer src="//webviso.yestool.org/js/index.min.js" data-base-url="your-url" data-page-pv-id="page_pv" data-page-uv-id="page_uv"></script>
+本页访问人次:<span id="page_pv"></span>
+本页访问人数:<span id="page_uv"></span>
 ```

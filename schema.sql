@@ -1,20 +1,23 @@
-drop table if exists t_website;
-create table t_website (
-  id integer primary key autoincrement,
-  name text not null,
-  domain text not null,
-  create_at datetime default current_timestamp,
-  update_at datetime default current_timestamp
+DROP TABLE IF EXISTS website_records;
+DROP TABLE IF EXISTS access_records;
+DROP INDEX IF EXISTS idx_domain;
+DROP INDEX IF EXISTS idx_website_id;
+
+CREATE TABLE website_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  create_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-drop table if exists t_web_visitor;
-create table t_web_visitor (
-  id integer primary key autoincrement,
-  website_id integer not null,
-  url_path text not null,
-  referrer_domain text not null,
-  referrer_path text not null,
-  visitor_ip text not null,
-  create_at datetime default current_timestamp,
-  update_at datetime default current_timestamp
+CREATE TABLE access_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  website_id INTEGER NOT NULL,
+  url_path TEXT NOT NULL,
+  referrer_url TEXT,
+  visitor_ip TEXT NOT NULL,
+  create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (website_id) REFERENCES website_records(id)
 );
+
+CREATE INDEX idx_domain ON website_records (domain);
+CREATE INDEX idx_website_id ON access_records (website_id);

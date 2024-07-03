@@ -1,5 +1,5 @@
 {
-  "name": "analytics_with_cloudflare",
+  "name": "web_analytics_2",
   "version": "0.0.0",
   "scripts": {
     "deploy": "wrangler deploy",

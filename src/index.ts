@@ -1,69 +1,112 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-
-import {checkUrl, getUrlData} from './lib/util'
-import { insertAndReturnId , insert } from './lib/dbutil';
+import { checkUrl, getUrlData } from './lib/util';
+import { insertAndReturnId, insert } from './lib/dbutil';
 
 type Bindings = {
   DB: D1Database
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+const app = new Hono<{ Bindings: Bindings }>();
 
-app.get("/", (c) => c.text("Hello World-2023"));
-app.use('/api/*', cors());
-
-app.post('/api/visit', async (c) => {
-  const retObj = {ret: "ERROR", data: null, message: "Error, Internal Server Error"};
-  try{
-    let visitorIP = c.req.header('CF-Connecting-IP')
-    const body = await c.req.json()
-    const hostname = body.hostname
-    const url_path = body.url
-    const referrer = body.referrer
-    const pv = body.pv
-    const uv = body.uv
-    let referrer_path = ''
-    let referrer_domain = ''
-    if (referrer&&checkUrl(referrer)){
-      const referrerData = getUrlData(referrer);
-      referrer_domain = referrerData.hostname;
-      referrer_path = referrerData.pathname;
-    }
-    const website  = await c.env.DB.prepare('select id, domain from t_website where domain = ?').bind(hostname).first();
-    let websiteId: number;
-    if (website){
-      await insert(c.env.DB, 
-        'insert into t_web_visitor (website_id, url_path, referrer_domain, referrer_path, visitor_ip) values(?, ?, ?, ?, ?)',
-        [website.id, url_path, referrer_domain, referrer_path, visitorIP]);
-      websiteId = Number(website.id);
-    } else{
-      websiteId = await insertAndReturnId(c.env.DB, 'insert into t_website (name, domain) values(?,?)',[hostname.split(".").join("_"), hostname]);
-      await insert(c.env.DB, 
-        'insert into t_web_visitor (website_id, url_path, referrer_domain, referrer_path, visitor_ip) values(?, ?, ?, ?, ?)', 
-        [websiteId, url_path, referrer_domain, referrer_path, visitorIP]);
-    }
-    const resData:{pv?: number, uv?: number} = {}
-    if (pv){
-      const total = await c.env.DB.prepare('SELECT COUNT(*) AS total from t_web_visitor where website_id = ? and url_path = ?').bind(websiteId, url_path).first('total');
-      resData['pv'] = Number(total)
-    }
-    if (uv){
-      const total = await c.env.DB.prepare('SELECT COUNT(*) AS total from (select DISTINCT visitor_ip from t_web_visitor where website_id = ? and url_path = ?) t').bind(websiteId, url_path).first('total');
-      resData['uv'] = Number(total)
-    }
-    return c.json({ret: "OK", data: resData});
-  } catch (e) {
-    console.error(e);
-    return c.json(retObj);
-  }
-})
-
-
-app.onError((err, c) => {
-	console.error(`${err}`);
-	return c.text(err.toString());
+// 首页路由
+app.get("/", (c) => {
+  const getHomeHTML = ``;
+  return c.text(getHomeHTML, 200, {
+    'Content-Type': 'text/html'
+  });
 });
 
-app.notFound(c => c.text('Not found', 404));
-export default app
+// 设置CORS
+app.use("/api/*", cors());
+
+// API路由
+app.post("/api/visit", async (c) => {
+  const times = Date.now();
+
+  if (c.req.method !== 'POST') {
+    return c.json({ code: 405, message: "Method Not Allowed", data: null, times }, 405);
+  }
+
+  try {
+    // 获取访客IP
+    const visitorIP = c.req.header("CF-Connecting-IP");
+
+    // 获取请求数据
+    const body = await c.req.json();
+
+    // 解构请求数据
+    const { visitorUrl, visitorHostName, visitorReferrer, pvEnable, uvEnable } = body;
+
+    // 处理合并referrer主机名和路径
+    let referrer_url = "";
+    if (visitorReferrer && checkUrl(visitorReferrer)) {
+      const referrerData = getUrlData(visitorReferrer);
+      referrer_url = `${referrerData.hostname}${referrerData.pathname}`;
+    }
+
+    // 查询数据库中的网站信息
+    const website = await c.env.DB
+      .prepare("SELECT id, domain FROM website_records WHERE domain = ?")
+      .bind(visitorHostName)
+      .first();
+
+    let websiteId;
+    if (website) {
+      // 插入访客数据
+      await insert(
+        c.env.DB,
+        "INSERT INTO access_records (website_id, url_path, referrer_url, visitor_ip) VALUES (?, ?, ?, ?)",
+        [website.id, visitorUrl, referrer_url, visitorIP]
+      );
+      websiteId = Number(website.id);
+    } else {
+      // 插入网站数据并返回网站ID
+      websiteId = await insertAndReturnId(
+        c.env.DB,
+        "INSERT INTO website_records (domain) VALUES (?)",
+        [visitorHostName]
+      );
+      // 插入访客数据
+      await insert(
+        c.env.DB,
+        "INSERT INTO access_records (website_id, url_path, referrer_url, visitor_ip) VALUES (?, ?, ?, ?)",
+        [websiteId, visitorUrl, referrer_url, visitorIP]
+      );
+    }
+
+    const resData: Record<string, number> = {};
+    if (pvEnable) {
+      // 页面访问次数
+      const total = await c.env.DB
+        .prepare("SELECT COUNT(*) AS total FROM access_records WHERE website_id = ? AND url_path = ?")
+        .bind(websiteId, visitorUrl)
+        .first("total");
+      resData["pagePv"] = Number(total);
+    }
+    if (uvEnable) {
+      // 页面独立访客数
+      const total = await c.env.DB
+        .prepare("SELECT COUNT(*) AS total FROM (SELECT DISTINCT visitor_ip FROM access_records WHERE website_id = ? AND url_path = ?) t")
+        .bind(websiteId, visitorUrl)
+        .first("total");
+      resData["pageUv"] = Number(total);
+    }
+
+    return c.json({ code: 200, message: "success", times, data: resData }, 200);
+  } catch (e) {
+    console.error(e);
+    return c.json({ code: 500, message: e.message, data: null, times: Date.now() }, 500);
+  }
+});
+
+// 错误处理
+app.onError((err, c) => {
+  console.error(err);
+  return c.json({ code: 500, message: err.message, data: null, times: Date.now() }, 500);
+});
+
+// 处理404
+app.notFound((c) => c.text(null, 404));
+
+export default app;
